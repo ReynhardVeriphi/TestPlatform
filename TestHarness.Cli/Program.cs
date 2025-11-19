@@ -21,7 +21,7 @@ class Program
             builder
                 .AddConsole()
                 .SetMinimumLevel(logLevel);
-        });
+        }); 
 
         var logger = loggerFactory.CreateLogger<Program>();
         logger.LogInformation("Test Harness starting");

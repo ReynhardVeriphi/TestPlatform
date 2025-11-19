@@ -25,7 +25,7 @@ namespace TestHarness.Core
         {
             var suite = new TestSuiteResult
             {
-                StartedAt = DateTime.UtcNow
+                StartedAt = DateTime.Now,
             };
 
             // Build assemblies list by scanning configured paths/pattern or reading explicit list
@@ -226,7 +226,7 @@ namespace TestHarness.Core
             {
                 "Passed" => TestOutcome.PASS,
                 "Failed" => TestOutcome.FAIL,
-                "Skipped" => TestOutcome.FAIL,          // or treat skipped specially if you add another state
+                "Skipped" => TestOutcome.FAIL,          
                 "Inconclusive" => TestOutcome.FAIL,     
                 _ => TestOutcome.CRITICAL_ERROR
             };
