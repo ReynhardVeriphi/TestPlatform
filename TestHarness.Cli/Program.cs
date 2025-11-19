@@ -34,7 +34,7 @@ class Program
             "Reflection" => new SimpleTestRunner(
                                 config,
                                 loggerFactory.CreateLogger<SimpleTestRunner>()),
-            _ => new NUnitEngineTestRunner(
+            "NUnit" => new NUnitEngineTestRunner(
                                 config,
                                 loggerFactory.CreateLogger<NUnitEngineTestRunner>())
         };
