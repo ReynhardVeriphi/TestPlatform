@@ -317,3 +317,5 @@ FakesAssemblies/
 *.msix
 *.msm
 *.msp
+
+reports

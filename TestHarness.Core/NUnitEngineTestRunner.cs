@@ -129,10 +129,8 @@ namespace TestHarness.Core
 
                 using var runner = engine.GetRunner(package);
 
-                // Run ALL tests (you can add filters later)
                 XmlNode resultXml = runner.Run(listener: null, filter: TestFilter.Empty);
 
-                // Convert NUnit XML to your internal model
                 ExtractResults(resultXml, suite);
             }
             catch (Exception ex)
