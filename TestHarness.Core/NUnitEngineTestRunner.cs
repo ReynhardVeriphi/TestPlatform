@@ -29,9 +29,21 @@ namespace TestHarness.Core
             };
 
             // Build assemblies list by scanning configured paths/pattern or reading explicit list
-            var explicitAssemblies = _config
-                .GetSection("TestHarness:TestAssemblies")
-                .Get<string[]>() ?? Array.Empty<string>();
+            var explicitSection = _config.GetSection("TestHarness:TestAssemblies");
+            var explicitAssemblies = explicitSection.Get<string[]>() ?? Array.Empty<string>();
+
+            // Fallback: scalar/semi-colon separated string
+            if (explicitAssemblies.Length == 0)
+            {
+                var single = _config["TestHarness:TestAssemblies"];
+                if (!string.IsNullOrWhiteSpace(single))
+                {
+                    explicitAssemblies = single
+                        .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(a => a.Trim())
+                        .ToArray();
+                }
+            }
 
             string[] assemblies;
 
