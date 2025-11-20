@@ -28,31 +28,14 @@ namespace TestHarness.Core
                 StartedAt = DateTime.Now,
             };
 
-            // Build assemblies list by scanning configured paths/pattern or reading explicit list
-            var explicitSection = _config.GetSection("TestHarness:TestAssemblies");
-            var explicitAssemblies = explicitSection.Get<string[]>() ?? Array.Empty<string>();
-
-            // Fallback: scalar/semi-colon separated string
-            if (explicitAssemblies.Length == 0)
-            {
-                var single = _config["TestHarness:TestAssemblies"];
-                if (!string.IsNullOrWhiteSpace(single))
-                {
-                    explicitAssemblies = single
-                        .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-                        .Select(a => a.Trim())
-                        .ToArray();
-                }
-            }
+            // 1) Try explicit assemblies configured
+            var explicitAssemblies = GetExplicitAssemblies();
 
             string[] assemblies;
 
             if (explicitAssemblies.Length > 0)
             {
-                assemblies = explicitAssemblies
-                    .Select(a => Path.GetFullPath(a))
-                    .Where(File.Exists)
-                    .ToArray();
+                assemblies = ResolveExplicitFiles(explicitAssemblies);
 
                 if (assemblies.Length == 0)
                 {
@@ -61,28 +44,10 @@ namespace TestHarness.Core
             }
             else
             {
-                // scan configured paths using pattern
+                // 2) Fallback: scan configured paths using pattern
                 var assemblyPattern = _config["TestHarness:TestAssemblyPattern"] ?? "*.Tests.dll";
 
-                var pathsSection = _config.GetSection("TestHarness:TestAssembliesPath");
-                var paths = new List<string>();
-
-                if (pathsSection.Exists())
-                {
-                    var pathArray = pathsSection.Get<string[]>();
-                    if (pathArray != null && pathArray.Length > 0)
-                    {
-                        paths.AddRange(pathArray.Where(p => !string.IsNullOrWhiteSpace(p)));
-                    }
-                    else
-                    {
-                        var single = _config["TestHarness:TestAssembliesPath"];
-                        if (!string.IsNullOrWhiteSpace(single))
-                        {
-                            paths.AddRange(single.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()));
-                        }
-                    }
-                }
+                var paths = GetConfiguredPaths();
 
                 if (!paths.Any())
                 {
@@ -91,35 +56,7 @@ namespace TestHarness.Core
                     return Task.FromResult(suite);
                 }
 
-                var found = new List<string>();
-
-                foreach (var p in paths)
-                {
-                    try
-                    {
-                        var full = Path.GetFullPath(p);
-
-                        if (File.Exists(full) && string.Equals(Path.GetExtension(full), ".dll", StringComparison.OrdinalIgnoreCase))
-                        {
-                            found.Add(full);
-                            continue;
-                        }
-
-                        if (!Directory.Exists(full))
-                        {
-                            _logger.LogWarning("Test assembly path does not exist: {Path}", full);
-                            continue;
-                        }
-
-                        found.AddRange(Directory.GetFiles(full, assemblyPattern, SearchOption.TopDirectoryOnly));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to enumerate test assemblies in {Path}", p);
-                    }
-                }
-
-                assemblies = found.Distinct().ToArray();
+                assemblies = FindAssembliesInPaths(paths, assemblyPattern);
 
                 if (!assemblies.Any())
                 {
@@ -143,7 +80,8 @@ namespace TestHarness.Core
 
                 XmlNode resultXml = runner.Run(listener: null, filter: TestFilter.Empty);
 
-                ExtractResults(resultXml, suite);
+                var results = ExtractResults(resultXml);
+                suite.TestCases.AddRange(results);
             }
             catch (Exception ex)
             {
@@ -172,27 +110,116 @@ namespace TestHarness.Core
             return Task.FromResult(suite);
         }
 
-        private void ExtractResults(XmlNode root, TestSuiteResult suite)
+        // Read explicit assembly list from configuration (array or semicolon-separated string)
+        private string[] GetExplicitAssemblies()
         {
+            var explicitSection = _config.GetSection("TestHarness:TestAssemblies");
+            var explicitAssemblies = explicitSection.Get<string[]>() ?? Array.Empty<string>();
+
+            if (explicitAssemblies.Length == 0)
+            {
+                var single = _config["TestHarness:TestAssemblies"];
+                if (!string.IsNullOrWhiteSpace(single))
+                {
+                    explicitAssemblies = single
+                        .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(a => a.Trim())
+                        .ToArray();
+                }
+            }
+
+            return explicitAssemblies;
+        }
+
+        private string[] ResolveExplicitFiles(string[] explicitAssemblies)
+        {
+            return explicitAssemblies
+                .Select(a => Path.GetFullPath(a))
+                .Where(File.Exists)
+                .ToArray();
+        }
+
+        // Read configured paths (array or semicolon-separated string)
+        private List<string> GetConfiguredPaths()
+        {
+            var pathsSection = _config.GetSection("TestHarness:TestAssembliesPath");
+            var paths = new List<string>();
+
+            if (pathsSection.Exists())
+            {
+                var pathArray = pathsSection.Get<string[]>();
+                if (pathArray != null && pathArray.Length > 0)
+                {
+                    paths.AddRange(pathArray.Where(p => !string.IsNullOrWhiteSpace(p)));
+                }
+                else
+                {
+                    var single = _config["TestHarness:TestAssembliesPath"];
+                    if (!string.IsNullOrWhiteSpace(single))
+                    {
+                        paths.AddRange(single.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()));
+                    }
+                }
+            }
+
+            return paths;
+        }
+
+        private string[] FindAssembliesInPaths(IEnumerable<string> paths, string assemblyPattern)
+        {
+            var found = new List<string>();
+
+            foreach (var p in paths)
+            {
+                try
+                {
+                    var full = Path.GetFullPath(p);
+
+                    if (File.Exists(full) && string.Equals(Path.GetExtension(full), ".dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        found.Add(full);
+                        continue;
+                    }
+
+                    if (!Directory.Exists(full))
+                    {
+                        _logger.LogWarning("Test assembly path does not exist: {Path}", full);
+                        continue;
+                    }
+
+                    found.AddRange(Directory.GetFiles(full, assemblyPattern, SearchOption.TopDirectoryOnly));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to enumerate test assemblies in {Path}", p);
+                }
+            }
+
+            return found.Distinct().ToArray();
+        }
+
+        private List<TestCaseResult> ExtractResults(XmlNode root)
+        {
+            var results = new List<TestCaseResult>();
+
             if (root == null)
             {
                 _logger.LogWarning("NUnit result XML is null");
-                return;
+                return results;
             }
 
-            // NUnit 3: each test case is in a <test-case> node
             var testCaseNodes = root.SelectNodes("//test-case");
             if (testCaseNodes == null || testCaseNodes.Count == 0)
             {
                 _logger.LogWarning("No <test-case> nodes found in NUnit result XML");
-                return;
+                return results;
             }
 
             foreach (XmlNode node in testCaseNodes)
             {
-                var name = node.Attributes?["name"]?.Value ?? "";
+                var name = node.Attributes?["name"]?.Value ?? string.Empty;
                 var fullName = node.Attributes?["fullname"]?.Value ?? name;
-                var className = node.Attributes?["classname"]?.Value ?? "";
+                var className = node.Attributes?["classname"]?.Value ?? string.Empty;
                 var result = node.Attributes?["result"]?.Value ?? "Unknown";
                 var durationStr = node.Attributes?["duration"]?.Value ?? "0";
 
@@ -205,7 +232,6 @@ namespace TestHarness.Core
                     duration = TimeSpan.FromSeconds(seconds);
                 }
 
-                // Get failure message / stack trace if present
                 string message = string.Empty;
                 string? stackTrace = null;
 
@@ -218,7 +244,7 @@ namespace TestHarness.Core
                     if (stackNode != null) stackTrace = stackNode.InnerText.Trim();
                 }
 
-                suite.TestCases.Add(new TestCaseResult
+                results.Add(new TestCaseResult
                 {
                     TestName = fullName,
                     ClassName = className,
@@ -228,6 +254,8 @@ namespace TestHarness.Core
                     StackTrace = stackTrace
                 });
             }
+
+            return results;
         }
 
         private TestOutcome MapOutcome(string nunitResult)
@@ -236,8 +264,8 @@ namespace TestHarness.Core
             {
                 "Passed" => TestOutcome.PASS,
                 "Failed" => TestOutcome.FAIL,
-                "Skipped" => TestOutcome.FAIL,          
-                "Inconclusive" => TestOutcome.FAIL,     
+                "Skipped" => TestOutcome.FAIL,
+                "Inconclusive" => TestOutcome.FAIL,
                 _ => TestOutcome.CRITICAL_ERROR
             };
         }
